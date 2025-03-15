@@ -1,0 +1,153 @@
+#include <Adafruit_NeoPixel.h>
+#include <SoftwareSerial.h>
+#include <DFRobotDFPlayerMini.h>
+
+// Define LED strips
+#define LED_PIN_3 3
+#define LED_PIN_5 5
+#define LED_PIN_6 6
+
+#define NUM_LEDS_3 1
+#define NUM_LEDS_5 1
+#define NUM_LEDS_6 14
+
+// Define button and DFPlayer pins
+#define BUTTON_PIN 2
+#define DFPLAYER_RX 10
+#define DFPLAYER_TX 11
+#define TURNTABLE_PIN 9  // MOSFET control pin
+
+// Create NeoPixel objects
+Adafruit_NeoPixel strip3 = Adafruit_NeoPixel(NUM_LEDS_3, LED_PIN_3, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip5 = Adafruit_NeoPixel(NUM_LEDS_5, LED_PIN_5, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip6 = Adafruit_NeoPixel(NUM_LEDS_6, LED_PIN_6, NEO_GRB + NEO_KHZ800);
+
+// DFPlayer setup
+SoftwareSerial mySerial(DFPLAYER_RX, DFPLAYER_TX);
+DFRobotDFPlayerMini myDFPlayer;
+bool isPlaying = false;
+unsigned long turntableStartTime = 0;
+bool turntableDelayed = false;
+bool discoMode = false;
+
+void setup() {
+    Serial.begin(9600);
+
+    // Initialize NeoPixels
+    strip3.begin();
+    strip5.begin();
+    strip6.begin();
+
+    strip3.show();
+    strip5.show();
+    strip6.show();
+
+    setLEDColors(); // Set LEDs to default colors
+
+    // Set up button and turntable MOSFET pin
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    pinMode(TURNTABLE_PIN, OUTPUT);
+    digitalWrite(TURNTABLE_PIN, LOW); // Turntable off initially
+
+    // Initialize DFPlayer
+    mySerial.begin(9600);
+    if (!myDFPlayer.begin(mySerial)) {
+        Serial.println("❌ DFPlayer Mini NOT detected!");
+        while (true); // Halt if DFPlayer is not found
+    }
+
+    myDFPlayer.volume(25); // Set volume (0-30)
+    Serial.println("✅ DFPlayer Mini Ready.");
+}
+
+void loop() {
+    if (digitalRead(BUTTON_PIN) == LOW) { 
+        delay(50); // Debounce
+        if (!isPlaying) {
+            Serial.println("🎵 Playing Song...");
+            myDFPlayer.play(1); // Play 001.mp3
+            isPlaying = true;
+
+            // Set the time when the button was pressed
+            turntableStartTime = millis();
+            turntableDelayed = true;
+        }
+    } 
+
+    // Check if the turntable should start spinning after 13 seconds
+    if (turntableDelayed && millis() - turntableStartTime >= 13000) {
+        startTurntable(); // Spin the turntable
+        discoMode = true; // Start the flashy party lights
+        turntableDelayed = false;
+    }
+
+    // Run flashy party lights if turntable is spinning
+    if (discoMode) {
+        flashyPartyLights();
+    }
+
+    // Check if the song has finished playing
+    if (isPlaying && myDFPlayer.readState() == 0) { // 0 = song finished
+        stopTurntable();
+        discoMode = false; // Stop party lights
+        setLEDColors(); // Restore original colors
+        isPlaying = false; // Reset playing status
+    }
+}
+
+// Function to set static LED colors (default state)
+void setLEDColors() {
+    strip3.setPixelColor(0, strip3.Color(0, 0, 255)); // Blue
+    strip5.setPixelColor(0, strip5.Color(255, 20, 147)); // Pink
+
+    for (int i = 0; i < NUM_LEDS_6; i++) {
+        strip6.setPixelColor(i, strip6.Color(255, 100, 20)); // Very warm white
+    }
+
+    strip3.show();
+    strip5.show();
+    strip6.show();
+}
+
+// Function to start the turntable
+void startTurntable() {
+    Serial.println("🔄 Turntable Started!");
+    digitalWrite(TURNTABLE_PIN, HIGH); // Fully turns on MOSFET
+}
+
+// Function to stop the turntable
+void stopTurntable() {
+    Serial.println("🛑 Stopping Turntable...");
+    digitalWrite(TURNTABLE_PIN, LOW); // Turn off
+}
+
+// Function for flashy random **saturated** party lights
+void flashyPartyLights() {
+    for (int i = 0; i < NUM_LEDS_3; i++) {
+        strip3.setPixelColor(i, randomSaturatedColor()); // Each LED gets a random saturated color
+    }
+    for (int i = 0; i < NUM_LEDS_5; i++) {
+        strip5.setPixelColor(i, randomSaturatedColor());
+    }
+    for (int i = 0; i < NUM_LEDS_6; i++) {
+        strip6.setPixelColor(i, randomSaturatedColor());
+    }
+
+    strip3.show();
+    strip5.show();
+    strip6.show();
+
+    delay(100); // Flash speed (change to 50ms for faster flashing)
+}
+
+// Function to generate a **saturated** random color (no white!)
+uint32_t randomSaturatedColor() {
+    byte colors[3] = {0, 0, 0}; // RGB values
+    int primary = random(0, 3);  // Pick a random primary color (Red, Green, or Blue)
+    int secondary = (primary + random(1, 3)) % 3; // Pick a secondary color (not the same as primary)
+
+    colors[primary] = 255;  // Full brightness on primary color
+    colors[secondary] = random(100, 255); // Random mid-to-high brightness on secondary color
+
+    return strip3.Color(colors[0], colors[1], colors[2]); // Return saturated RGB color
+}
