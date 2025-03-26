@@ -1,0 +1,201 @@
+#include <Adafruit_NeoPixel.h>
+#include <SoftwareSerial.h>
+#include <DFRobotDFPlayerMini.h>
+#include <Servo.h>
+
+// Define LED strips
+#define LED_PIN_3 3
+#define LED_PIN_4 4
+#define LED_PIN_5 5
+#define LED_PIN_6 6
+#define LED_PIN_12 12
+
+#define NUM_LEDS_3 1
+#define NUM_LEDS_4 10
+#define NUM_LEDS_5 1
+#define NUM_LEDS_6 14
+#define NUM_LEDS_12 10
+
+// Define button, DFPlayer, turntable, and servo pins
+#define BUTTON_PIN 2
+#define DFPLAYER_RX 10
+#define DFPLAYER_TX 11
+#define TURNTABLE_PIN 9
+#define SERVO1_PIN 7
+#define SERVO2_PIN 8
+
+#define TURNTABLE_ROTATION_TIME 16050
+
+Servo ft90rServo;
+Servo myServo2;
+int servoSpeed = 120;
+bool dancing = false;
+
+Adafruit_NeoPixel strip3 = Adafruit_NeoPixel(NUM_LEDS_3, LED_PIN_3, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip4 = Adafruit_NeoPixel(NUM_LEDS_4, LED_PIN_4, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip5 = Adafruit_NeoPixel(NUM_LEDS_5, LED_PIN_5, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip6 = Adafruit_NeoPixel(NUM_LEDS_6, LED_PIN_6, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip12 = Adafruit_NeoPixel(NUM_LEDS_12, LED_PIN_12, NEO_GRB + NEO_KHZ800);
+
+SoftwareSerial mySerial(DFPLAYER_RX, DFPLAYER_TX);
+DFRobotDFPlayerMini myDFPlayer;
+
+bool isPlaying = false;
+bool turntableActive = false;
+bool discoMode = false;
+bool servoActive = false;
+
+unsigned long songStartTime = 0;
+unsigned long turntableStartTime = 0;
+
+void setup() {
+    Serial.begin(9600);
+
+    strip3.begin();
+    strip4.begin();
+    strip5.begin();
+    strip6.begin();
+    strip12.begin();
+
+    strip3.show();
+    strip4.show();
+    strip5.show();
+    strip6.show();
+    strip12.show();
+
+    setLEDColors();  // Initial state (warm white for 4 & 12)
+
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    pinMode(TURNTABLE_PIN, OUTPUT);
+    digitalWrite(TURNTABLE_PIN, LOW);
+
+    ft90rServo.attach(SERVO1_PIN);
+    ft90rServo.write(90);
+
+    myServo2.attach(SERVO2_PIN);
+    myServo2.write(90);
+
+    mySerial.begin(9600);
+    if (!myDFPlayer.begin(mySerial)) {
+        Serial.println("❌ DFPlayer Mini NOT detected!");
+        while (true);
+    }
+
+    myDFPlayer.volume(25);
+    Serial.println("✅ DFPlayer Mini Ready.");
+}
+
+void loop() {
+    int buttonState = digitalRead(BUTTON_PIN);
+
+    if (buttonState == LOW && !isPlaying) {
+        delay(50);
+        Serial.println("🎵 Button Pressed - Playing Song...");
+        myDFPlayer.play(1);
+        isPlaying = true;
+        songStartTime = millis();
+        Serial.print("⏱️ Song started at: "); Serial.println(songStartTime);
+    }
+
+    if (isPlaying && millis() - songStartTime >= 13000 && !turntableActive) {
+        Serial.println("🔄 Turntable & Servos Started!");
+        digitalWrite(TURNTABLE_PIN, HIGH);
+        ft90rServo.write(servoSpeed);
+        dancing = true;
+        discoMode = true;
+        turntableActive = true;
+        servoActive = true;
+        turntableStartTime = millis();
+    }
+
+    if (discoMode) {
+        randomDiscoLights(); // now includes pins 4 and 12
+    }
+
+    if (dancing) {
+        static unsigned long lastDanceMove = 0;
+        if (millis() - lastDanceMove > 300) {
+            static bool tiltLeft = false;
+            myServo2.write(tiltLeft ? 50 : 150);
+            tiltLeft = !tiltLeft;
+            lastDanceMove = millis();
+        }
+    }
+
+    if (turntableActive && millis() - turntableStartTime >= TURNTABLE_ROTATION_TIME) {
+        Serial.println("🛑 Turntable & Servos Stopped.");
+        digitalWrite(TURNTABLE_PIN, LOW);
+        ft90rServo.write(90);
+        myServo2.write(90);
+        dancing = false;
+        discoMode = false;
+        turntableActive = false;
+        servoActive = false;
+
+        setLEDColors(); // Restore warm white to 4 & 12
+    }
+
+    if (isPlaying && millis() - songStartTime >= 28000) {
+        Serial.println("✅ Song Finished (turntable & servos still spinning).");
+        isPlaying = false;
+    }
+}
+
+void setLEDColors() {
+    strip3.setPixelColor(0, strip3.Color(0, 0, 255)); // Blue
+    strip5.setPixelColor(0, strip5.Color(255, 20, 147)); // Pink
+
+    for (int i = 0; i < NUM_LEDS_6; i++) {
+        strip6.setPixelColor(i, strip6.Color(255, 100, 20)); // Warm white
+    }
+
+    for (int i = 0; i < NUM_LEDS_4; i++) {
+        strip4.setPixelColor(i, strip4.Color(255, 90, 20)); // Warm white
+    }
+
+    for (int i = 0; i < NUM_LEDS_12; i++) {
+        strip12.setPixelColor(i, strip12.Color(255, 90, 20)); // Warm white
+    }
+
+    strip3.show();
+    strip4.show();
+    strip5.show();
+    strip6.show();
+    strip12.show();
+}
+
+void randomDiscoLights() {
+    static uint32_t lastUpdate = 0;
+    if (millis() - lastUpdate < 100) return;
+    lastUpdate = millis();
+
+    uint32_t rainbowColors[] = {
+        strip3.Color(255, 0, 0),
+        strip3.Color(255, 127, 0),
+        strip3.Color(255, 255, 0),
+        strip3.Color(0, 255, 0),
+        strip3.Color(0, 0, 255),
+        strip3.Color(75, 0, 130),
+        strip3.Color(148, 0, 211)
+    };
+
+    for (int i = 0; i < NUM_LEDS_3; i++)
+        strip3.setPixelColor(i, rainbowColors[random(0, 7)]);
+    for (int i = 0; i < NUM_LEDS_5; i++)
+        strip5.setPixelColor(i, rainbowColors[random(0, 7)]);
+    for (int i = 0; i < NUM_LEDS_6; i++)
+        strip6.setPixelColor(i, rainbowColors[random(0, 7)]);
+
+    // Treat strip4 and strip12 as single pixels
+    uint32_t color4 = rainbowColors[random(0, 7)];
+    uint32_t color12 = rainbowColors[random(0, 7)];
+
+    for (int i = 0; i < NUM_LEDS_4; i++) strip4.setPixelColor(i, color4);
+    for (int i = 0; i < NUM_LEDS_12; i++) strip12.setPixelColor(i, color12);
+
+    strip3.show();
+    strip5.show();
+    strip6.show();
+    strip4.show();
+    strip12.show();
+}
